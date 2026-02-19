@@ -198,6 +198,156 @@ func TestSearch_CaseInsensitive(t *testing.T) {
 	}
 }
 
+func TestSearch_Offset(t *testing.T) {
+	reg := mustRegistry(t)
+
+	all := reg.Search("farming")
+	if len(all) < 5 {
+		t.Fatalf("expected at least 5 results for 'farming', got %d", len(all))
+	}
+
+	page := reg.Search("farming", MaxResults(3), Offset(2))
+	if len(page) > 3 {
+		t.Errorf("expected at most 3 results, got %d", len(page))
+	}
+	if page[0].Industry.Code != all[2].Industry.Code {
+		t.Errorf("offset result[0] = %s, want %s", page[0].Industry.Code, all[2].Industry.Code)
+	}
+}
+
+func TestSearch_OffsetBeyondTotal(t *testing.T) {
+	reg := mustRegistry(t)
+
+	results := reg.Search("soybean farming", Offset(9999))
+	if len(results) != 0 {
+		t.Errorf("offset beyond total should return empty, got %d", len(results))
+	}
+}
+
+func TestSearchPage(t *testing.T) {
+	reg := mustRegistry(t)
+
+	resp := reg.SearchPage("farming", MaxResults(5))
+	if resp.Total < 5 {
+		t.Fatalf("expected total >= 5 for 'farming', got %d", resp.Total)
+	}
+	if len(resp.Results) != 5 {
+		t.Errorf("expected 5 results, got %d", len(resp.Results))
+	}
+	if resp.Offset != 0 {
+		t.Errorf("expected offset 0, got %d", resp.Offset)
+	}
+	if resp.Limit != 5 {
+		t.Errorf("expected limit 5, got %d", resp.Limit)
+	}
+	if !resp.HasMore() {
+		t.Error("expected HasMore() = true")
+	}
+}
+
+func TestSearchPage_Pagination(t *testing.T) {
+	reg := mustRegistry(t)
+
+	page1 := reg.SearchPage("farming", MaxResults(3))
+	page2 := reg.SearchPage("farming", MaxResults(3), Offset(3))
+
+	if page1.Total != page2.Total {
+		t.Errorf("total changed between pages: %d vs %d", page1.Total, page2.Total)
+	}
+	if len(page1.Results) == 0 || len(page2.Results) == 0 {
+		t.Fatal("expected results on both pages")
+	}
+	if page1.Results[0].Industry.Code == page2.Results[0].Industry.Code {
+		t.Error("page 1 and page 2 should have different first results")
+	}
+}
+
+func TestSearchPage_EmptyQuery(t *testing.T) {
+	reg := mustRegistry(t)
+	resp := reg.SearchPage("")
+	if resp.Total != 0 || len(resp.Results) != 0 {
+		t.Error("empty query should return empty response")
+	}
+}
+
+func TestSearchPage_LastPage(t *testing.T) {
+	reg := mustRegistry(t)
+	resp := reg.SearchPage("soybean farming")
+	if resp.Total == 0 {
+		t.Fatal("expected results for 'soybean farming'")
+	}
+
+	last := reg.SearchPage("soybean farming", Offset(resp.Total-1), MaxResults(10))
+	if len(last.Results) != 1 {
+		t.Errorf("last page should have 1 result, got %d", len(last.Results))
+	}
+	if last.HasMore() {
+		t.Error("last page should not have more")
+	}
+}
+
+func TestCount(t *testing.T) {
+	reg := mustRegistry(t)
+
+	count := reg.Count("farming")
+	all := reg.Search("farming")
+	if count != len(all) {
+		t.Errorf("Count() = %d, len(Search()) = %d", count, len(all))
+	}
+}
+
+func TestCount_Empty(t *testing.T) {
+	reg := mustRegistry(t)
+	if reg.Count("") != 0 {
+		t.Error("empty query count should be 0")
+	}
+}
+
+func TestCount_NoMatch(t *testing.T) {
+	reg := mustRegistry(t)
+	if reg.Count("zzzzzzxxxxxnonexistent") != 0 {
+		t.Error("nonexistent query count should be 0")
+	}
+}
+
+func TestMinScore(t *testing.T) {
+	reg := mustRegistry(t)
+
+	all := reg.Search("software")
+	filtered := reg.Search("software", MinScore(50.0))
+
+	if len(filtered) >= len(all) {
+		t.Errorf("MinScore should reduce results: all=%d, filtered=%d", len(all), len(filtered))
+	}
+	for _, r := range filtered {
+		if r.Score < 50.0 {
+			t.Errorf("result %s has score %.1f, below min 50.0", r.Industry.Code, r.Score)
+		}
+	}
+}
+
+func TestAtLevel(t *testing.T) {
+	reg := mustRegistry(t)
+
+	results := reg.Search("software", AtLevel(NationalIndustry))
+	for _, r := range results {
+		if r.Industry.Level != NationalIndustry {
+			t.Errorf("result %s is level %v, want NationalIndustry", r.Industry.Code, r.Industry.Level)
+		}
+	}
+}
+
+func TestAtLevel_Count(t *testing.T) {
+	reg := mustRegistry(t)
+
+	allCount := reg.Count("manufacturing")
+	sectorCount := reg.Count("manufacturing", AtLevel(Sector))
+
+	if sectorCount >= allCount {
+		t.Errorf("sector-only count (%d) should be less than all (%d)", sectorCount, allCount)
+	}
+}
+
 func TestParent(t *testing.T) {
 	reg := mustRegistry(t)
 

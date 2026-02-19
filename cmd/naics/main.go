@@ -3,9 +3,10 @@
 //
 // Usage:
 //
-//	naics lookup <code>              Look up an industry by code
-//	naics search <query>             Search industries by keyword
-//	naics validate <code> [codes...] Validate one or more NAICS codes
+//	naics lookup <code>                        Look up an industry by code
+//	naics search [-n limit] [-p page] <query>  Search industries by keyword
+//	naics count <query>                        Count matching industries
+//	naics validate <code> [codes...]           Validate one or more NAICS codes
 //	naics tree <code>                Display hierarchy tree for a code
 //	naics parent <code>              Show ancestor chain to sector
 //	naics sectors                    List all sectors
@@ -16,6 +17,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/faisalmushtaq007/naics"
@@ -41,6 +43,8 @@ func main() {
 		cmdLookup(reg, args)
 	case "search":
 		cmdSearch(reg, args)
+	case "count":
+		cmdCount(reg, args)
 	case "validate":
 		cmdValidate(reg, args)
 	case "tree":
@@ -82,18 +86,79 @@ func cmdLookup(reg *naics.Registry, args []string) {
 
 func cmdSearch(reg *naics.Registry, args []string) {
 	if len(args) < 1 {
-		fatal("usage: naics search <query>")
+		fatal("usage: naics search [-n limit] [-p page] <query>")
 	}
-	query := strings.Join(args, " ")
-	results := reg.Search(query, naics.MaxResults(20))
-	if len(results) == 0 {
+
+	limit := 20
+	page := 1
+	var queryParts []string
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "-n":
+			i++
+			if i >= len(args) {
+				fatal("-n requires a number")
+			}
+			n, err := strconv.Atoi(args[i])
+			if err != nil || n < 1 {
+				fatal("-n must be a positive integer")
+			}
+			limit = n
+		case "-p":
+			i++
+			if i >= len(args) {
+				fatal("-p requires a number")
+			}
+			n, err := strconv.Atoi(args[i])
+			if err != nil || n < 1 {
+				fatal("-p must be a positive integer")
+			}
+			page = n
+		default:
+			queryParts = append(queryParts, args[i])
+		}
+	}
+
+	if len(queryParts) == 0 {
+		fatal("usage: naics search [-n limit] [-p page] <query>")
+	}
+
+	query := strings.Join(queryParts, " ")
+	offset := (page - 1) * limit
+
+	resp := reg.SearchPage(query, naics.MaxResults(limit), naics.Offset(offset))
+	if resp.Total == 0 {
 		fmt.Println("No results found.")
 		return
 	}
 
-	for _, r := range results {
-		fmt.Printf("%-8s %s (%s)\n", r.Industry.Code, r.Industry.Title, r.Industry.Level)
+	if len(resp.Results) == 0 {
+		fmt.Printf("No results on page %d (total: %d).\n", page, resp.Total)
+		return
 	}
+
+	start := offset + 1
+	end := offset + len(resp.Results)
+	fmt.Printf("Results %d-%d of %d for %q:\n\n", start, end, resp.Total, query)
+
+	for _, r := range resp.Results {
+		fmt.Printf("  %-8s %s (%s)\n", r.Industry.Code, r.Industry.Title, r.Industry.Level)
+	}
+
+	if resp.HasMore() {
+		fmt.Printf("\n  Page %d of %d. Next: naics search -n %d -p %d %s\n",
+			page, (resp.Total+limit-1)/limit, limit, page+1, query)
+	}
+}
+
+func cmdCount(reg *naics.Registry, args []string) {
+	if len(args) < 1 {
+		fatal("usage: naics count <query>")
+	}
+	query := strings.Join(args, " ")
+	count := reg.Count(query)
+	fmt.Printf("%d results for %q\n", count, query)
 }
 
 func cmdValidate(reg *naics.Registry, args []string) {
@@ -219,9 +284,10 @@ Usage:
   naics <command> [arguments]
 
 Commands:
-  lookup <code>              Look up an industry by NAICS code
-  search <query>             Search industries by keyword
-  validate <code> [codes...] Validate one or more NAICS codes
+  lookup <code>                        Look up an industry by NAICS code
+  search [-n limit] [-p page] <query>  Search with pagination (default: 20/page)
+  count <query>                        Count matching industries
+  validate <code> [codes...]           Validate one or more NAICS codes
   tree <code>                Display hierarchy tree for a code
   parent <code>              Show ancestor chain to sector
   sectors                    List all 20 NAICS sectors
@@ -231,6 +297,8 @@ Commands:
 Examples:
   naics lookup 513210
   naics search "software"
+  naics search -n 10 -p 2 "farming"
+  naics count "software"
   naics validate 513210 999999
   naics tree 51
   naics parent 513210

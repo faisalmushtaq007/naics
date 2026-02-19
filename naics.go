@@ -53,11 +53,12 @@ import (
 
 // Type aliases — all methods on the underlying core types are preserved.
 type (
-	Industry     = core.Industry
-	Registry     = core.Registry
-	Level        = core.Level
-	SearchResult = core.SearchResult
-	SearchOption = core.SearchOption
+	Industry       = core.Industry
+	Registry       = core.Registry
+	Level          = core.Level
+	SearchResult   = core.SearchResult
+	SearchOption   = core.SearchOption
+	SearchResponse = core.SearchResponse
 )
 
 const (
@@ -84,4 +85,24 @@ func NewFromCSV(r io.Reader) (*Registry, error) {
 // A value of 0 or less means no limit.
 func MaxResults(n int) SearchOption {
 	return core.MaxResults(n)
+}
+
+// Offset skips the first n results after sorting, enabling pagination.
+// Use together with MaxResults to implement paged search:
+//
+//	page1 := reg.Search("software", naics.MaxResults(10))
+//	page2 := reg.Search("software", naics.MaxResults(10), naics.Offset(10))
+func Offset(n int) SearchOption {
+	return core.Offset(n)
+}
+
+// MinScore filters out results below the given relevance score.
+func MinScore(score float64) SearchOption {
+	return core.MinScore(score)
+}
+
+// AtLevel restricts search results to a specific NAICS hierarchy level.
+// For example, AtLevel(naics.NationalIndustry) returns only 6-digit codes.
+func AtLevel(l Level) SearchOption {
+	return core.AtLevel(l)
 }
